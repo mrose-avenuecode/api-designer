@@ -47,7 +47,7 @@
         return (/^https?:\/\//).test(file) ? readExtFile(file) : readLocFile(file);
       });
     })
-    .controller('ramlEditorMain', function (UPDATE_RESPONSIVENESS_INTERVAL, $scope, $rootScope, $timeout, $window,
+    .controller('ramlEditorMain', function (UPDATE_RESPONSIVENESS_INTERVAL, $scope, $rootScope, $timeout, $window, $q, $http,
       safeApply, safeApplyWrapper, debounce, throttle, ramlHint, ramlParser, ramlParserFileReader, ramlRepository, codeMirror,
       codeMirrorErrors, config, $prompt, $confirm, $modal, mockingServiceClient
     ) {
@@ -161,12 +161,29 @@
         updateFile();
       };
 
-      $scope.loadRaml = function loadRaml(definition, location) {
-        return ramlParser.load(definition, location, {
-          validate : true,
-          transform: true,
-          compose:   true,
-          reader:    ramlParserFileReader
+      $scope.loadRaml = function loadRaml(definition) {
+        return ramlParser.loadApi('api.raml', {
+          rejectOnErrors: true,
+          fsResolver: {
+            contentAsync: function (path) {
+              if (path === '/api.raml') {
+                var deferred = $q.defer();
+                deferred.resolve(definition);
+                return deferred.promise;
+              } else {
+                return ramlParserFileReader.readFileAsync(path);
+              }
+            }
+          },
+          httpResolver: {
+            getResourceAsync: function(path) {
+              return ramlParserFileReader.readFileAsync(path);
+            }
+          }
+        })
+        .then(function (api) {
+          api = api.expand();
+          return api;
         });
       };
 
@@ -204,33 +221,38 @@
       });
 
       $scope.$on('event:raml-parsed', safeApplyWrapper($scope, function onRamlParser(event, raml) {
-        $scope.title     = raml.title;
-        $scope.version   = raml.version;
+        if (raml.title) {
+          $scope.title     = raml.title();
+          $scope.version   = raml.version();
+        }
         $scope.currentError = undefined;
         lineOfCurrentError = undefined;
       }));
 
-      $scope.$on('event:raml-parser-error', safeApplyWrapper($scope, function onRamlParserError(event, error) {
-        /*jshint sub: true */
-        var problemMark = error['problem_mark'],
-            displayLine = 0,
-            displayColumn = 0,
-            message = error.message;
+      $scope.$on('event:raml-parser-error', safeApplyWrapper($scope, function onRamlParserError(event, currentError) {
+        var errors = currentError.parserErrors;
+        var convertedErrors = [];
 
-        lineOfCurrentError = displayLine;
-        $scope.currentError = error;
+        errors.forEach(function (error) {
+          var displayLine = 0,
+              displayColumn = 0,
+              message = error.message;
 
-        if (problemMark) {
-          lineOfCurrentError = problemMark.line;
+          lineOfCurrentError = displayLine;
+          $scope.currentError = error;
+
+          lineOfCurrentError = error.line;
           displayLine = calculatePositionOfErrorMark(lineOfCurrentError);
-          displayColumn = problemMark.column;
-        }
+          displayColumn = error.column;
 
-        codeMirrorErrors.displayAnnotations([{
-          line:    displayLine + 1,
-          column:  displayColumn + 1,
-          message: formatErrorMessage(message, lineOfCurrentError, displayLine)
-        }]);
+          convertedErrors.push({
+            line:    displayLine + 1,
+            column:  displayColumn + 1,
+            message: formatErrorMessage(message, lineOfCurrentError, displayLine)
+          });
+        });
+
+        codeMirrorErrors.displayAnnotations(convertedErrors);
       }));
 
       $scope.openHelp = function openHelp() {
