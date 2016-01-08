@@ -34,8 +34,11 @@
         state.escaped = false;
 
         /* RAML tag */
-        if (ch === '#' && stream.string.trim() === '#%RAML 0.8') {
+        if (ch === '#' && (stream.string.trim() === '#%RAML 0.8' || stream.string.trim() === '#%RAML 1.0')) {
           stream.skipToEnd();
+          if (stream.string.trim() === '#%RAML 1.0') {
+            state.isRAML1 = true;
+          }
           return 'raml-tag';
         }
 
@@ -107,6 +110,13 @@
             highlightRootElement('resourceTypes', 'resource-type-title', 'resource-type-content', state, level, key) ||
             highlightRootElement('schemas', 'schema-title', 'schema-content', state, level, key) ||
             highlightRootElement('securitySchemes', 'security-scheme-title', 'security-scheme-content', state, level, key);
+
+          if (state.isRAML1) {
+            rootElements = rootElements ||
+              highlightRootElement('types', 'schema-title', 'schema-content', state, level, key) ||
+              highlightRootElement('annotationTypes', 'schema-title', 'schema-content', state, level, key) ||
+              highlightRootElement('uses', 'schema-title', 'schema-content', state, level, key);
+          }
 
           if (rootElements) {
             return rootElements;
@@ -200,7 +210,8 @@
         inlinePairs: 0,
         inlineList: 0,
         literal: false,
-        escaped: false
+        escaped: false,
+        isRAML1: false
       };
     })
     .factory('yamlMode', function (token, startState) {

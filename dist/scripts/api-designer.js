@@ -11057,8 +11057,11 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
         var esc = state.escaped;
         state.escaped = false;
         /* RAML tag */
-        if (ch === '#' && stream.string.trim() === '#%RAML 0.8') {
+        if (ch === '#' && (stream.string.trim() === '#%RAML 0.8' || stream.string.trim() === '#%RAML 1.0')) {
           stream.skipToEnd();
+          if (stream.string.trim() === '#%RAML 1.0') {
+            state.isRAML1 = true;
+          }
           return 'raml-tag';
         }
         /* comments */
@@ -11123,6 +11126,9 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
             return 'method-content';
           }
           var rootElements = highlightRootElement('traits', 'trait-title', 'trait-content', state, level, key) || highlightRootElement('resourceTypes', 'resource-type-title', 'resource-type-content', state, level, key) || highlightRootElement('schemas', 'schema-title', 'schema-content', state, level, key) || highlightRootElement('securitySchemes', 'security-scheme-title', 'security-scheme-content', state, level, key);
+          if (state.isRAML1) {
+            rootElements = rootElements || highlightRootElement('types', 'schema-title', 'schema-content', state, level, key) || highlightRootElement('annotationTypes', 'schema-title', 'schema-content', state, level, key) || highlightRootElement('uses', 'schema-title', 'schema-content', state, level, key);
+          }
           if (rootElements) {
             return rootElements;
           }
@@ -11200,7 +11206,8 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
       inlinePairs: 0,
       inlineList: 0,
       literal: false,
-      escaped: false
+      escaped: false,
+      isRAML1: false
     };
   }).factory('yamlMode', [
     'token',
@@ -13191,6 +13198,8 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
     '$rootScope',
     '$timeout',
     '$window',
+    '$q',
+    '$http',
     'safeApply',
     'safeApplyWrapper',
     'debounce',
@@ -13206,7 +13215,7 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
     '$confirm',
     '$modal',
     'mockingServiceClient',
-    function (UPDATE_RESPONSIVENESS_INTERVAL, $scope, $rootScope, $timeout, $window, safeApply, safeApplyWrapper, debounce, throttle, ramlHint, ramlParser, ramlParserFileReader, ramlRepository, codeMirror, codeMirrorErrors, config, $prompt, $confirm, $modal, mockingServiceClient) {
+    function (UPDATE_RESPONSIVENESS_INTERVAL, $scope, $rootScope, $timeout, $window, $q, $http, safeApply, safeApplyWrapper, debounce, throttle, ramlHint, ramlParser, ramlParserFileReader, ramlRepository, codeMirror, codeMirrorErrors, config, $prompt, $confirm, $modal, mockingServiceClient) {
       var editor, lineOfCurrentError, currentFile;
       function extractCurrentFileLabel(file) {
         var label = '';
@@ -13290,12 +13299,28 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
         $scope.fileParsable = $scope.getIsFileParsable(selectedFile);
         updateFile();
       };
-      $scope.loadRaml = function loadRaml(definition, location) {
-        return ramlParser.load(definition, location, {
-          validate: true,
-          transform: true,
-          compose: true,
-          reader: ramlParserFileReader
+      $scope.loadRaml = function loadRaml(definition) {
+        return ramlParser.loadApi('api.raml', {
+          rejectOnErrors: true,
+          fsResolver: {
+            contentAsync: function (path) {
+              if (path === '/api.raml') {
+                var deferred = $q.defer();
+                deferred.resolve(definition);
+                return deferred.promise;
+              } else {
+                return ramlParserFileReader.readFileAsync(path);
+              }
+            }
+          },
+          httpResolver: {
+            getResourceAsync: function (path) {
+              return ramlParserFileReader.readFileAsync(path);
+            }
+          }
+        }).then(function (api) {
+          api = api.expand();
+          return api;
         });
       };
       $scope.clearErrorMarks = function clearErrorMarks() {
@@ -13320,26 +13345,28 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
         }));
       });
       $scope.$on('event:raml-parsed', safeApplyWrapper($scope, function onRamlParser(event, raml) {
-        $scope.title = raml.title;
-        $scope.version = raml.version;
+        if (raml.title) {
+          $scope.title = raml.title();
+          $scope.version = raml.version();
+        }
         $scope.currentError = undefined;
         lineOfCurrentError = undefined;
       }));
-      $scope.$on('event:raml-parser-error', safeApplyWrapper($scope, function onRamlParserError(event, error) {
-        /*jshint sub: true */
-        var problemMark = error['problem_mark'], displayLine = 0, displayColumn = 0, message = error.message;
-        lineOfCurrentError = displayLine;
-        $scope.currentError = error;
-        if (problemMark) {
-          lineOfCurrentError = problemMark.line;
+      $scope.$on('event:raml-parser-error', safeApplyWrapper($scope, function onRamlParserError(event, currentError) {
+        var errors = currentError.parserErrors;
+        errors.forEach(function (error) {
+          var displayLine = 0, displayColumn = 0, message = error.message;
+          lineOfCurrentError = displayLine;
+          $scope.currentError = error;
+          lineOfCurrentError = error.line;
           displayLine = calculatePositionOfErrorMark(lineOfCurrentError);
-          displayColumn = problemMark.column;
-        }
-        codeMirrorErrors.displayAnnotations([{
-            line: displayLine + 1,
-            column: displayColumn + 1,
-            message: formatErrorMessage(message, lineOfCurrentError, displayLine)
-          }]);
+          displayColumn = error.column;
+          codeMirrorErrors.displayAnnotations([{
+              line: displayLine + 1,
+              column: displayColumn + 1,
+              message: formatErrorMessage(message, lineOfCurrentError, displayLine)
+            }]);
+        });
       }));
       $scope.openHelp = function openHelp() {
         $modal.open({ templateUrl: 'views/help.html' });
