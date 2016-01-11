@@ -13354,6 +13354,7 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
       }));
       $scope.$on('event:raml-parser-error', safeApplyWrapper($scope, function onRamlParserError(event, currentError) {
         var errors = currentError.parserErrors;
+        var convertedErrors = [];
         errors.forEach(function (error) {
           var displayLine = 0, displayColumn = 0, message = error.message;
           lineOfCurrentError = displayLine;
@@ -13361,12 +13362,13 @@ if (!CodeMirror.mimeModes.hasOwnProperty('text/html'))
           lineOfCurrentError = error.line;
           displayLine = calculatePositionOfErrorMark(lineOfCurrentError);
           displayColumn = error.column;
-          codeMirrorErrors.displayAnnotations([{
-              line: displayLine + 1,
-              column: displayColumn + 1,
-              message: formatErrorMessage(message, lineOfCurrentError, displayLine)
-            }]);
+          convertedErrors.push({
+            line: displayLine + 1,
+            column: displayColumn + 1,
+            message: formatErrorMessage(message, lineOfCurrentError, displayLine)
+          });
         });
+        codeMirrorErrors.displayAnnotations(convertedErrors);
       }));
       $scope.openHelp = function openHelp() {
         $modal.open({ templateUrl: 'views/help.html' });
