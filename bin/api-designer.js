@@ -14,14 +14,14 @@ var argv = require('yargs')
     type: 'number'
   }).option('d', {
     alias: 'directory',
-    describe: 'Directory relative to this script pwd that contains the directory of raml files',
+    describe: 'Directory containing the raml source',
     type: 'string'
   })
   .argv
 
 var app = express()
 
-app.use('/', ramlStore(join(__dirname, argv.d)))
+app.use('/', ramlStore(argv.d))
 
 app.listen(argv.p, function () {
   console.log('API designer running on port ' + argv.p + '...')
