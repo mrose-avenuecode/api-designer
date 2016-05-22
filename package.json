@@ -17,7 +17,6 @@
   "license": "CPAL 1.0",
   "dependencies": {
     "express": "~4.12.4",
-    "express-raml-store": "^1.2.1",
     "open": "0.0.5",
     "yargs": "~3.11.0"
   },
